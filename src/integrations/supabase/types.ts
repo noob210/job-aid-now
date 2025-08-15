@@ -269,6 +269,60 @@ export type Database = {
           },
         ]
       }
+      pending_users: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          email: string
+          first_name: string
+          front_face_url: string | null
+          id: string
+          id_document_url: string
+          last_name: string
+          left_side_url: string | null
+          password_hash: string
+          phone: string | null
+          right_side_url: string | null
+          status: string
+          updated_at: string
+          user_type: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          email: string
+          first_name: string
+          front_face_url?: string | null
+          id?: string
+          id_document_url: string
+          last_name: string
+          left_side_url?: string | null
+          password_hash: string
+          phone?: string | null
+          right_side_url?: string | null
+          status?: string
+          updated_at?: string
+          user_type: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          email?: string
+          first_name?: string
+          front_face_url?: string | null
+          id?: string
+          id_document_url?: string
+          last_name?: string
+          left_side_url?: string | null
+          password_hash?: string
+          phone?: string | null
+          right_side_url?: string | null
+          status?: string
+          updated_at?: string
+          user_type?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           address: string | null

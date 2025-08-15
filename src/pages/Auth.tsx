@@ -1,17 +1,23 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { useFileUpload } from '@/hooks/useFileUpload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Briefcase, Users } from 'lucide-react';
+import { Loader2, Briefcase, Users, ArrowRight, ArrowLeft } from 'lucide-react';
+import FaceVerification from '@/components/FaceVerification';
+import IDVerification from '@/components/IDVerification';
+import { supabase } from '@/integrations/supabase/client';
 
 const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const [signUpStep, setSignUpStep] = useState(1);
+  const { signIn } = useAuth();
+  const { uploadFile, uploading } = useFileUpload();
   const navigate = useNavigate();
 
   const [signInData, setSignInData] = useState({
@@ -29,6 +35,18 @@ const Auth = () => {
     phone: ''
   });
 
+  const [facePhotos, setFacePhotos] = useState<{
+    front: File | null;
+    left: File | null;
+    right: File | null;
+  }>({
+    front: null,
+    left: null,
+    right: null
+  });
+
+  const [idDocument, setIdDocument] = useState<File | null>(null);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -42,30 +60,79 @@ const Auth = () => {
     setIsLoading(false);
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (signUpData.password !== signUpData.confirmPassword) {
+  const handleSignUpSubmit = async () => {
+    if (!facePhotos.front || !facePhotos.left || !facePhotos.right || !idDocument) {
       return;
     }
     
     setIsLoading(true);
     
-    const userData = {
-      first_name: signUpData.firstName,
-      last_name: signUpData.lastName,
-      user_type: signUpData.userType,
-      phone: signUpData.phone
-    };
-    
-    const { error } = await signUp(signUpData.email, signUpData.password, userData);
-    
-    if (!error) {
-      navigate('/');
+    try {
+      // Generate unique identifier for this application
+      const applicationId = crypto.randomUUID();
+      
+      // Upload face verification photos
+      const frontUrl = await uploadFile(facePhotos.front, 'face-verification', `${applicationId}/front`);
+      const leftUrl = await uploadFile(facePhotos.left, 'face-verification', `${applicationId}/left`);
+      const rightUrl = await uploadFile(facePhotos.right, 'face-verification', `${applicationId}/right`);
+      const idUrl = await uploadFile(idDocument, 'id-documents', `${applicationId}/id`);
+      
+      if (!frontUrl || !leftUrl || !rightUrl || !idUrl) {
+        throw new Error('Failed to upload verification documents');
+      }
+      
+      // Create pending user application
+      const { error } = await supabase
+        .from('pending_users')
+        .insert({
+          email: signUpData.email,
+          password_hash: signUpData.password, // In production, this should be hashed
+          first_name: signUpData.firstName,
+          last_name: signUpData.lastName,
+          user_type: signUpData.userType,
+          phone: signUpData.phone,
+          front_face_url: frontUrl,
+          left_side_url: leftUrl,
+          right_side_url: rightUrl,
+          id_document_url: idUrl
+        });
+        
+      if (error) {
+        throw error;
+      }
+      
+      // Show success message and redirect
+      navigate('/', { 
+        state: { 
+          message: 'Application submitted successfully! Please wait for admin approval.' 
+        }
+      });
+      
+    } catch (error: any) {
+      console.error('Error submitting application:', error);
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
+
+  const nextStep = () => {
+    if (signUpStep === 1 && signUpData.password !== signUpData.confirmPassword) {
+      return;
+    }
+    setSignUpStep(prev => Math.min(prev + 1, 3));
+  };
+
+  const prevStep = () => {
+    setSignUpStep(prev => Math.max(prev - 1, 1));
+  };
+
+  const isStep1Valid = signUpData.email && signUpData.password && 
+                     signUpData.confirmPassword && signUpData.firstName && 
+                     signUpData.lastName && signUpData.userType &&
+                     signUpData.password === signUpData.confirmPassword;
+
+  const isStep2Valid = facePhotos.front && facePhotos.left && facePhotos.right;
+  const isStep3Valid = idDocument;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5 flex items-center justify-center p-4">
@@ -138,117 +205,206 @@ const Auth = () => {
               </TabsContent>
               
               <TabsContent value="signup">
-                <form onSubmit={handleSignUp} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="signup-firstname">First Name</Label>
-                      <Input
-                        id="signup-firstname"
-                        placeholder="First name"
-                        value={signUpData.firstName}
-                        onChange={(e) => setSignUpData({ ...signUpData, firstName: e.target.value })}
-                        required
-                        className="h-12"
-                      />
+                <div className="space-y-6">
+                  {/* Step Indicator */}
+                  <div className="flex items-center justify-center space-x-2">
+                    {[1, 2, 3].map((step) => (
+                      <div key={step} className="flex items-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                          signUpStep >= step 
+                            ? 'bg-primary text-primary-foreground' 
+                            : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {step}
+                        </div>
+                        {step < 3 && (
+                          <div className={`w-8 h-0.5 mx-2 ${
+                            signUpStep > step ? 'bg-primary' : 'bg-muted'
+                          }`} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Step 1: Basic Information */}
+                  {signUpStep === 1 && (
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <h3 className="text-lg font-semibold">Basic Information</h3>
+                        <p className="text-sm text-muted-foreground">Let's start with your details</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="signup-firstname">First Name</Label>
+                          <Input
+                            id="signup-firstname"
+                            placeholder="First name"
+                            value={signUpData.firstName}
+                            onChange={(e) => setSignUpData({ ...signUpData, firstName: e.target.value })}
+                            required
+                            className="h-12"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="signup-lastname">Last Name</Label>
+                          <Input
+                            id="signup-lastname"
+                            placeholder="Last name"
+                            value={signUpData.lastName}
+                            onChange={(e) => setSignUpData({ ...signUpData, lastName: e.target.value })}
+                            required
+                            className="h-12"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="signup-usertype">I am a...</Label>
+                        <Select value={signUpData.userType} onValueChange={(value) => setSignUpData({ ...signUpData, userType: value })}>
+                          <SelectTrigger className="h-12">
+                            <SelectValue placeholder="Select your role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="worker">
+                              <div className="flex items-center gap-2">
+                                <Briefcase className="w-4 h-4" />
+                                Worker - Looking for jobs
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="client">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-4 h-4" />
+                                Client - Need work done
+                              </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="signup-email">Email</Label>
+                        <Input
+                          id="signup-email"
+                          type="email"
+                          placeholder="Enter your email"
+                          value={signUpData.email}
+                          onChange={(e) => setSignUpData({ ...signUpData, email: e.target.value })}
+                          required
+                          className="h-12"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="signup-phone">Phone (Optional)</Label>
+                        <Input
+                          id="signup-phone"
+                          type="tel"
+                          placeholder="Your phone number"
+                          value={signUpData.phone}
+                          onChange={(e) => setSignUpData({ ...signUpData, phone: e.target.value })}
+                          className="h-12"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="signup-password">Password</Label>
+                        <Input
+                          id="signup-password"
+                          type="password"
+                          placeholder="Create a password"
+                          value={signUpData.password}
+                          onChange={(e) => setSignUpData({ ...signUpData, password: e.target.value })}
+                          required
+                          className="h-12"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="signup-confirm">Confirm Password</Label>
+                        <Input
+                          id="signup-confirm"
+                          type="password"
+                          placeholder="Confirm your password"
+                          value={signUpData.confirmPassword}
+                          onChange={(e) => setSignUpData({ ...signUpData, confirmPassword: e.target.value })}
+                          required
+                          className="h-12"
+                        />
+                      </div>
+                      
+                      <Button 
+                        className="w-full h-12 bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 text-primary-foreground font-medium"
+                        disabled={!isStep1Valid}
+                        onClick={nextStep}
+                      >
+                        Next: Face Verification
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Button>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="signup-lastname">Last Name</Label>
-                      <Input
-                        id="signup-lastname"
-                        placeholder="Last name"
-                        value={signUpData.lastName}
-                        onChange={(e) => setSignUpData({ ...signUpData, lastName: e.target.value })}
-                        required
-                        className="h-12"
+                  )}
+
+                  {/* Step 2: Face Verification */}
+                  {signUpStep === 2 && (
+                    <div className="space-y-4">
+                      <FaceVerification
+                        photos={facePhotos}
+                        onPhotosChange={setFacePhotos}
                       />
+                      
+                      <div className="flex gap-3">
+                        <Button 
+                          variant="outline"
+                          className="flex-1 h-12"
+                          onClick={prevStep}
+                        >
+                          <ArrowLeft className="w-4 h-4 mr-2" />
+                          Back
+                        </Button>
+                        <Button 
+                          className="flex-1 h-12 bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 text-primary-foreground font-medium"
+                          disabled={!isStep2Valid}
+                          onClick={nextStep}
+                        >
+                          Next: ID Verification
+                          <ArrowRight className="w-4 h-4 ml-2" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-usertype">I am a...</Label>
-                    <Select value={signUpData.userType} onValueChange={(value) => setSignUpData({ ...signUpData, userType: value })}>
-                      <SelectTrigger className="h-12">
-                        <SelectValue placeholder="Select your role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="worker">
-                          <div className="flex items-center gap-2">
-                            <Briefcase className="w-4 h-4" />
-                            Worker - Looking for jobs
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="client">
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4" />
-                            Client - Need work done
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="Enter your email"
-                      value={signUpData.email}
-                      onChange={(e) => setSignUpData({ ...signUpData, email: e.target.value })}
-                      required
-                      className="h-12"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-phone">Phone (Optional)</Label>
-                    <Input
-                      id="signup-phone"
-                      type="tel"
-                      placeholder="Your phone number"
-                      value={signUpData.phone}
-                      onChange={(e) => setSignUpData({ ...signUpData, phone: e.target.value })}
-                      className="h-12"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <Input
-                      id="signup-password"
-                      type="password"
-                      placeholder="Create a password"
-                      value={signUpData.password}
-                      onChange={(e) => setSignUpData({ ...signUpData, password: e.target.value })}
-                      required
-                      className="h-12"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-confirm">Confirm Password</Label>
-                    <Input
-                      id="signup-confirm"
-                      type="password"
-                      placeholder="Confirm your password"
-                      value={signUpData.confirmPassword}
-                      onChange={(e) => setSignUpData({ ...signUpData, confirmPassword: e.target.value })}
-                      required
-                      className="h-12"
-                    />
-                  </div>
-                  
-                  <Button 
-                    type="submit" 
-                    className="w-full h-12 bg-gradient-to-r from-accent to-warning hover:opacity-90 text-accent-foreground font-medium"
-                    disabled={isLoading || !signUpData.userType || signUpData.password !== signUpData.confirmPassword}
-                  >
-                    {isLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : null}
-                    Create Account
-                  </Button>
-                </form>
+                  )}
+
+                  {/* Step 3: ID Verification */}
+                  {signUpStep === 3 && (
+                    <div className="space-y-4">
+                      <IDVerification
+                        idDocument={idDocument}
+                        onIDChange={setIdDocument}
+                      />
+                      
+                      <div className="flex gap-3">
+                        <Button 
+                          variant="outline"
+                          className="flex-1 h-12"
+                          onClick={prevStep}
+                          disabled={isLoading}
+                        >
+                          <ArrowLeft className="w-4 h-4 mr-2" />
+                          Back
+                        </Button>
+                        <Button 
+                          className="flex-1 h-12 bg-gradient-to-r from-accent to-warning hover:opacity-90 text-accent-foreground font-medium"
+                          disabled={!isStep3Valid || isLoading || uploading}
+                          onClick={handleSignUpSubmit}
+                        >
+                          {isLoading || uploading ? (
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          ) : null}
+                          Submit Application
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
