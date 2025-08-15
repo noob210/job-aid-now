@@ -35,15 +35,7 @@ const Auth = () => {
     phone: ''
   });
 
-  const [facePhotos, setFacePhotos] = useState<{
-    front: File | null;
-    left: File | null;
-    right: File | null;
-  }>({
-    front: null,
-    left: null,
-    right: null
-  });
+  const [faceVideo, setFaceVideo] = useState<File | null>(null);
 
   const [idDocument, setIdDocument] = useState<File | null>(null);
 
@@ -61,7 +53,7 @@ const Auth = () => {
   };
 
   const handleSignUpSubmit = async () => {
-    if (!facePhotos.front || !facePhotos.left || !facePhotos.right || !idDocument) {
+    if (!faceVideo || !idDocument) {
       return;
     }
     
@@ -71,13 +63,11 @@ const Auth = () => {
       // Generate unique identifier for this application
       const applicationId = crypto.randomUUID();
       
-      // Upload face verification photos
-      const frontUrl = await uploadFile(facePhotos.front, 'face-verification', `${applicationId}/front`);
-      const leftUrl = await uploadFile(facePhotos.left, 'face-verification', `${applicationId}/left`);
-      const rightUrl = await uploadFile(facePhotos.right, 'face-verification', `${applicationId}/right`);
+      // Upload face verification video and ID document
+      const faceVideoUrl = await uploadFile(faceVideo, 'face-verification', `${applicationId}/face-video`);
       const idUrl = await uploadFile(idDocument, 'id-documents', `${applicationId}/id`);
       
-      if (!frontUrl || !leftUrl || !rightUrl || !idUrl) {
+      if (!faceVideoUrl || !idUrl) {
         throw new Error('Failed to upload verification documents');
       }
       
@@ -91,9 +81,7 @@ const Auth = () => {
           last_name: signUpData.lastName,
           user_type: signUpData.userType,
           phone: signUpData.phone,
-          front_face_url: frontUrl,
-          left_side_url: leftUrl,
-          right_side_url: rightUrl,
+          face_video_url: faceVideoUrl,
           id_document_url: idUrl
         });
         
@@ -131,7 +119,7 @@ const Auth = () => {
                      signUpData.lastName && signUpData.userType &&
                      signUpData.password === signUpData.confirmPassword;
 
-  const isStep2Valid = facePhotos.front && facePhotos.left && facePhotos.right;
+  const isStep2Valid = faceVideo;
   const isStep3Valid = idDocument;
 
   return (
@@ -348,8 +336,8 @@ const Auth = () => {
                   {signUpStep === 2 && (
                     <div className="space-y-4">
                       <FaceVerification
-                        photos={facePhotos}
-                        onPhotosChange={setFacePhotos}
+                        video={faceVideo}
+                        onVideoChange={setFaceVideo}
                       />
                       
                       <div className="flex gap-3">
