@@ -274,15 +274,13 @@ export type Database = {
           admin_notes: string | null
           created_at: string
           email: string
+          face_video_url: string | null
           first_name: string
-          front_face_url: string | null
           id: string
           id_document_url: string
           last_name: string
-          left_side_url: string | null
           password_hash: string
           phone: string | null
-          right_side_url: string | null
           status: string
           updated_at: string
           user_type: string
@@ -291,15 +289,13 @@ export type Database = {
           admin_notes?: string | null
           created_at?: string
           email: string
+          face_video_url?: string | null
           first_name: string
-          front_face_url?: string | null
           id?: string
           id_document_url: string
           last_name: string
-          left_side_url?: string | null
           password_hash: string
           phone?: string | null
-          right_side_url?: string | null
           status?: string
           updated_at?: string
           user_type: string
@@ -308,15 +304,13 @@ export type Database = {
           admin_notes?: string | null
           created_at?: string
           email?: string
+          face_video_url?: string | null
           first_name?: string
-          front_face_url?: string | null
           id?: string
           id_document_url?: string
           last_name?: string
-          left_side_url?: string | null
           password_hash?: string
           phone?: string | null
-          right_side_url?: string | null
           status?: string
           updated_at?: string
           user_type?: string
