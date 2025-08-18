@@ -18,9 +18,7 @@ interface PendingUser {
   last_name: string;
   user_type: string;
   phone?: string;
-  front_face_url: string;
-  left_side_url: string;
-  right_side_url: string;
+  face_video_url: string;
   id_document_url: string;
   status: string;
   admin_notes?: string;
@@ -214,33 +212,16 @@ const AdminDashboard = () => {
                                 <div>
                                   <h4 className="font-medium mb-2 flex items-center gap-2">
                                     <Camera className="w-4 h-4" />
-                                    Face Verification Photos
+                                    Face Verification Video
                                   </h4>
-                                  <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                      <p className="text-sm font-medium mb-2">Front</p>
-                                      <img 
-                                        src={getImageUrl(user.front_face_url)}
-                                        alt="Front face"
-                                        className="w-full aspect-square object-cover rounded-lg border"
-                                      />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium mb-2">Left Side</p>
-                                      <img 
-                                        src={getImageUrl(user.left_side_url)}
-                                        alt="Left side"
-                                        className="w-full aspect-square object-cover rounded-lg border"
-                                      />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium mb-2">Right Side</p>
-                                      <img 
-                                        src={getImageUrl(user.right_side_url)}
-                                        alt="Right side"
-                                        className="w-full aspect-square object-cover rounded-lg border"
-                                      />
-                                    </div>
+                                  <div className="max-w-md">
+                                    <video 
+                                      src={getImageUrl(user.face_video_url)}
+                                      controls
+                                      className="w-full aspect-video object-cover rounded-lg border"
+                                    >
+                                      Your browser does not support video playback.
+                                    </video>
                                   </div>
                                 </div>
 

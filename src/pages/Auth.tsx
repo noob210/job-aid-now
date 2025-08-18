@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useFileUpload } from '@/hooks/useFileUpload';
+import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +19,7 @@ const Auth = () => {
   const [signUpStep, setSignUpStep] = useState(1);
   const { signIn } = useAuth();
   const { uploadFile, uploading } = useFileUpload();
+  const { toast } = useToast();
   const navigate = useNavigate();
 
   const [signInData, setSignInData] = useState({
@@ -90,6 +92,11 @@ const Auth = () => {
       }
       
       // Show success message and redirect
+      toast({
+        title: "Application submitted successfully!",
+        description: "Please wait for admin approval.",
+      });
+      
       navigate('/', { 
         state: { 
           message: 'Application submitted successfully! Please wait for admin approval.' 
@@ -98,6 +105,11 @@ const Auth = () => {
       
     } catch (error: any) {
       console.error('Error submitting application:', error);
+      toast({
+        title: "Application submission failed",
+        description: error.message || "Please try again later.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
