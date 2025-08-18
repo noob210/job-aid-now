@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useFileUpload } from '@/hooks/useFileUpload';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Briefcase, Users, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Loader2, Briefcase, Users, User, ArrowRight, ArrowLeft } from 'lucide-react';
 import FaceVerification from '@/components/FaceVerification';
 import IDVerification from '@/components/IDVerification';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,6 +21,7 @@ const Auth = () => {
   const { uploadFile, uploading } = useFileUpload();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
 
   const [signInData, setSignInData] = useState({
     email: '',
@@ -55,19 +56,44 @@ const Auth = () => {
   };
 
   const handleSignUpSubmit = async () => {
-    if (!faceVideo || !idDocument) {
+    if (signUpData.userType !== 'admin' && (!faceVideo || !idDocument)) {
       return;
     }
     
     setIsLoading(true);
     
     try {
+      // If creating an admin, sign up directly and set admin metadata
+      if (signUpData.userType === 'admin') {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: signUpData.email,
+          password: signUpData.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/admin`,
+            data: {
+              user_type: 'admin',
+              first_name: signUpData.firstName,
+              last_name: signUpData.lastName,
+            },
+          },
+        });
+
+        if (signUpError) throw signUpError;
+
+        toast({
+          title: 'Admin account created',
+          description: 'Check your email to confirm your admin account.',
+        });
+        navigate('/admin');
+        return;
+      }
+
       // Generate unique identifier for this application
       const applicationId = crypto.randomUUID();
       
       // Upload face verification video and ID document
-      const faceVideoUrl = await uploadFile(faceVideo, 'face-verification', `${applicationId}/face-video`);
-      const idUrl = await uploadFile(idDocument, 'id-documents', `${applicationId}/id`);
+      const faceVideoUrl = await uploadFile(faceVideo!, 'face-verification', `${applicationId}/face-video`);
+      const idUrl = await uploadFile(idDocument!, 'id-documents', `${applicationId}/id`);
       
       if (!faceVideoUrl || !idUrl) {
         throw new Error('Failed to upload verification documents');
@@ -278,6 +304,14 @@ const Auth = () => {
                                 Client - Need work done
                               </div>
                             </SelectItem>
+                            {hasAdmin === false && (
+                              <SelectItem value="admin">
+                                <div className="flex items-center gap-2">
+                                  <User className="w-4 h-4" />
+                                  Admin (bootstrap)
+                                </div>
+                              </SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
                       </div>

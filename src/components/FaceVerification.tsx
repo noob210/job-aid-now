@@ -1,7 +1,7 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Video, Square, CheckCircle2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
 interface FaceVerificationProps {
@@ -9,134 +9,113 @@ interface FaceVerificationProps {
   video: File | null;
 }
 
-type VerificationStep = 'front' | 'left' | 'right' | 'complete';
+type StepKey = 'front' | 'left' | 'right';
+
+const steps: { key: StepKey; title: string; description: string; duration: number }[] = [
+  { key: 'front', title: 'Face Forward', description: 'Look directly at the camera', duration: 3000 },
+  { key: 'left', title: 'Turn Left', description: 'Turn your head to the left', duration: 3000 },
+  { key: 'right', title: 'Turn Right', description: 'Turn your head to the right', duration: 3000 },
+];
 
 const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [currentStep, setCurrentStep] = useState<VerificationStep>('front');
+  const [currentStep, setCurrentStep] = useState<StepKey>('front');
+  const [progress, setProgress] = useState(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
-  const [stepProgress, setStepProgress] = useState(0);
-  const [stepTimer, setStepTimer] = useState<NodeJS.Timeout | null>(null);
-  
+  const [chunks, setChunks] = useState<Blob[]>([]);
+  const progressIntervalRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const steps = [
-    { key: 'front' as const, title: 'Face Forward', description: 'Look directly at the camera', duration: 3000 },
-    { key: 'left' as const, title: 'Turn Left', description: 'Turn your head to the left', duration: 3000 },
-    { key: 'right' as const, title: 'Turn Right', description: 'Turn your head to the right', duration: 3000 },
-  ];
-
-  const getCurrentStepIndex = () => steps.findIndex(step => step.key === currentStep);
-
+  // Start camera automatically so users can see themselves immediately
   useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      if (stepTimer) {
-        clearTimeout(stepTimer);
+    const start = async () => {
+      try {
+        const ms = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+        setStream(ms);
+        if (videoRef.current) videoRef.current.srcObject = ms;
+      } catch (e) {
+        console.error('Camera access denied:', e);
       }
     };
-  }, [stream, stepTimer]);
+    start();
 
-  const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        },
-        audio: false
-      });
-      
-      setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-    }
-  };
+    return () => {
+      if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startRecording = async () => {
     if (!stream) return;
 
     setIsRecording(true);
+    setChunks([]);
+    setProgress(0);
     setCurrentStep('front');
-    setRecordedChunks([]);
-    setStepProgress(0);
 
-    const recorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp9'
-    });
+    const preferredTypes = [
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+    const mimeType = preferredTypes.find((t) => (window as any).MediaRecorder?.isTypeSupported?.(t)) || 'video/webm';
 
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        setRecordedChunks(prev => [...prev, event.data]);
-      }
+    const mr = new MediaRecorder(stream, { mimeType });
+    mr.ondataavailable = (e) => {
+      if (e.data?.size > 0) setChunks((prev) => [...prev, e.data]);
     };
-
-    recorder.onstop = () => {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      const file = new File([blob], 'face-verification.webm', { type: 'video/webm' });
+    mr.onstop = () => {
+      if (chunks.length === 0) return;
+      const blob = new Blob(chunks, { type: mimeType });
+      const file = new File([blob], 'face-verification.webm', { type: mimeType });
       onVideoChange(file);
-      setCurrentStep('complete');
     };
 
-    setMediaRecorder(recorder);
-    recorder.start();
-
-    // Start step progression
-    progressThroughSteps();
+    setMediaRecorder(mr);
+    mr.start();
+    runStep(0);
   };
 
-  const progressThroughSteps = () => {
-    let stepIndex = 0;
-    let progress = 0;
+  const runStep = (index: number) => {
+    if (index >= steps.length) {
+      stopRecording();
+      return;
+    }
 
-    const stepInterval = setInterval(() => {
-      progress += 100 / 30; // 100% over 3 seconds (30 updates)
-      setStepProgress(progress);
+    const step = steps[index];
+    setCurrentStep(step.key);
+    setProgress(0);
 
-      if (progress >= 100) {
-        progress = 0;
-        stepIndex++;
-        
-        if (stepIndex < steps.length) {
-          setCurrentStep(steps[stepIndex].key);
-        } else {
-          clearInterval(stepInterval);
-          stopRecording();
-        }
-      }
-    }, 100);
+    const startAt = performance.now();
+    if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
+    progressIntervalRef.current = window.setInterval(() => {
+      const pct = Math.min(100, ((performance.now() - startAt) / step.duration) * 100);
+      setProgress(pct);
+    }, 50);
 
-    setStepTimer(stepInterval);
+    window.setTimeout(() => {
+      if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
+      runStep(index + 1);
+    }, step.duration);
   };
 
   const stopRecording = () => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-    }
+    if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
     setIsRecording(false);
-    if (stepTimer) {
-      clearTimeout(stepTimer);
-    }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
   };
 
-  const retakeVideo = () => {
-    setCurrentStep('front');
-    setStepProgress(0);
+  const retake = () => {
     onVideoChange(null);
-    setRecordedChunks([]);
-  };
-
-  const getStepInstruction = () => {
-    const step = steps.find(s => s.key === currentStep);
-    return step ? step.description : '';
+    setProgress(0);
+    setCurrentStep('front');
+    setChunks([]);
   };
 
   return (
@@ -144,7 +123,7 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
       <div className="text-center">
         <h3 className="text-lg font-semibold">Face Verification</h3>
         <p className="text-sm text-muted-foreground">
-          Record a video following the face direction prompts for verification
+          Record a short video while following the prompts (front, left, right)
         </p>
       </div>
 
@@ -153,24 +132,22 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
           <div className="aspect-video bg-muted rounded-lg overflow-hidden mb-4 relative">
             {stream && !video ? (
               <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
+                <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
                 {isRecording && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/20">
                     <div className="text-white text-center mb-4">
-                      <h4 className="text-lg font-semibold">{steps.find(s => s.key === currentStep)?.title}</h4>
-                      <p className="text-sm">{getStepInstruction()}</p>
+                      <h4 className="text-lg font-semibold">
+                        {steps.find((s) => s.key === currentStep)?.title}
+                      </h4>
+                      <p className="text-sm">
+                        {steps.find((s) => s.key === currentStep)?.description}
+                      </p>
                     </div>
                     <div className="w-3/4 mb-2">
-                      <Progress value={stepProgress} className="bg-white/20" />
+                      <Progress value={progress} className="bg-white/20" />
                     </div>
                     <div className="text-white text-xs">
-                      Step {getCurrentStepIndex() + 1} of {steps.length}
+                      Step {steps.findIndex((s) => s.key === currentStep) + 1} of {steps.length}
                     </div>
                   </div>
                 )}
@@ -190,14 +167,7 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
           </div>
 
           <div className="space-y-3">
-            {!stream && !video && (
-              <Button onClick={startCamera} className="w-full">
-                <Video className="w-4 h-4 mr-2" />
-                Start Camera
-              </Button>
-            )}
-
-            {stream && !isRecording && !video && (
+            {!isRecording && !video && (
               <Button onClick={startRecording} className="w-full">
                 <Video className="w-4 h-4 mr-2" />
                 Start Recording
@@ -212,7 +182,7 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
             )}
 
             {video && (
-              <Button onClick={retakeVideo} variant="outline" className="w-full">
+              <Button onClick={retake} variant="outline" className="w-full">
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Retake Video
               </Button>
