@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Video, Square, CheckCircle2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
   const [progress, setProgress] = useState(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [chunks, setChunks] = useState<Blob[]>([]);
+  const [recordedBlobs, setRecordedBlobs] = useState<Blob[]>([]);
   const progressIntervalRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -45,7 +46,6 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
 
     return () => {
       if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
       if (stream) stream.getTracks().forEach((t) => t.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,8 +54,9 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
   const startRecording = async () => {
     if (!stream) return;
 
+    console.log('Starting recording...');
     setIsRecording(true);
-    setChunks([]);
+    setRecordedBlobs([]);
     setProgress(0);
     setCurrentStep('front');
 
@@ -67,28 +68,49 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
     const mimeType = preferredTypes.find((t) => (window as any).MediaRecorder?.isTypeSupported?.(t)) || 'video/webm';
 
     const mr = new MediaRecorder(stream, { mimeType });
+    
     mr.ondataavailable = (e) => {
-      if (e.data?.size > 0) setChunks((prev) => [...prev, e.data]);
+      console.log('Data available:', e.data.size);
+      if (e.data?.size > 0) {
+        setRecordedBlobs(prev => {
+          const newBlobs = [...prev, e.data];
+          console.log('Updated blobs:', newBlobs.length);
+          return newBlobs;
+        });
+      }
     };
+
     mr.onstop = () => {
-      if (chunks.length === 0) return;
-      const blob = new Blob(chunks, { type: mimeType });
-      const file = new File([blob], 'face-verification.webm', { type: mimeType });
-      onVideoChange(file);
+      console.log('Recording stopped');
+      // We'll handle the video creation in the useEffect below
     };
 
     setMediaRecorder(mr);
-    mr.start();
+    mr.start(100); // Collect data every 100ms
     runStep(0);
   };
 
+  // Handle video creation when recording stops and blobs are available
+  useEffect(() => {
+    if (!isRecording && recordedBlobs.length > 0 && !video) {
+      console.log('Creating video from blobs:', recordedBlobs.length);
+      const mimeType = 'video/webm';
+      const blob = new Blob(recordedBlobs, { type: mimeType });
+      const file = new File([blob], 'face-verification.webm', { type: mimeType });
+      console.log('Created video file:', file.size);
+      onVideoChange(file);
+    }
+  }, [isRecording, recordedBlobs, video, onVideoChange]);
+
   const runStep = (index: number) => {
     if (index >= steps.length) {
+      console.log('All steps completed, stopping recording');
       stopRecording();
       return;
     }
 
     const step = steps[index];
+    console.log('Running step:', step.key);
     setCurrentStep(step.key);
     setProgress(0);
 
@@ -106,16 +128,20 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
   };
 
   const stopRecording = () => {
+    console.log('Stopping recording...');
     if (progressIntervalRef.current) window.clearInterval(progressIntervalRef.current);
     setIsRecording(false);
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
   };
 
   const retake = () => {
+    console.log('Retaking video');
     onVideoChange(null);
     setProgress(0);
     setCurrentStep('front');
-    setChunks([]);
+    setRecordedBlobs([]);
   };
 
   return (
@@ -168,7 +194,7 @@ const FaceVerification = ({ onVideoChange, video }: FaceVerificationProps) => {
 
           <div className="space-y-3">
             {!isRecording && !video && (
-              <Button onClick={startRecording} className="w-full">
+              <Button onClick={startRecording} className="w-full" disabled={!stream}>
                 <Video className="w-4 h-4 mr-2" />
                 Start Recording
               </Button>
